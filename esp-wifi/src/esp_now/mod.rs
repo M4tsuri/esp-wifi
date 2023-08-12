@@ -9,7 +9,7 @@
 use core::{cell::RefCell, fmt::Debug};
 
 use critical_section::Mutex;
-use atomic_polyfill::{Ordering, AtomicBool};
+use atomic_polyfill::{Ordering, AtomicBool, AtomicU32};
 use esp_hal_common::peripheral::{Peripheral, PeripheralRef};
 
 use crate::compat::queue::SimpleQueue;
@@ -29,7 +29,7 @@ static RECEIVE_QUEUE: Mutex<RefCell<SimpleQueue<ReceivedData, 10>>> =
 /// operating it.
 /// 
 /// This flag indicates whether the send callback has been called after a sending.
-static ESP_NOW_SEND_CB_INVOKED: AtomicBool = AtomicBool::new(false);
+static ESP_NOW_SEND_CB_INVOKED: AtomicBool = AtomicBool::new(true);
 /// Status of esp now send, true for success, false for failure
 static ESP_NOW_SEND_STATUS: AtomicBool = AtomicBool::new(true);
 
@@ -75,6 +75,7 @@ impl Error {
 #[derive(Debug)]
 pub enum EspNowError {
     Error(Error),
+    SendFailed
 }
 
 #[derive(Debug)]
@@ -481,13 +482,6 @@ impl Drop for EspNow<'_> {
     }
 }
 
-/// This is essentially [esp_now_send_status_t](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html#_CPPv421esp_now_send_status_t)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SendStatus {
-    Success,
-    Failed
-}
-
 /// This struct is returned by a sync esp now send. Invoking `wait` method of this
 /// struct will block current task until the callback function of esp now send is called
 /// and return the status of previous sending. 
@@ -500,13 +494,13 @@ impl SendWaiter {
     /// Note: if you firstly dropped waiter of a sending and then wait for a following sending,
     /// you probably get unreliable status because we cannot determine which sending the waited status
     /// belongs to.
-    pub fn wait(self) -> SendStatus {
+    pub fn wait(self) -> Result<(), EspNowError> {
         while !ESP_NOW_SEND_CB_INVOKED.load(Ordering::Acquire) {}
 
         if ESP_NOW_SEND_STATUS.load(Ordering::Relaxed) {
-            SendStatus::Success
+            Ok(())
         } else {
-            SendStatus::Failed
+            Err(EspNowError::SendFailed)
         }
     }
 }
@@ -625,45 +619,92 @@ unsafe extern "C" fn rcv_cb(
     });
 }
 
-#[cfg(feature = "async")]
-pub use asynch::SendFuture;
+static ESP_NOW_SEND_SEQ: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(feature = "async")]
 mod asynch {
     use super::*;
-    use core::task::{Context, Poll};
+    use core::{task::{Context, Poll}, borrow::BorrowMut};
     use embassy_sync::waitqueue::AtomicWaker;
 
     pub(super) static ESP_NOW_TX_WAKER: AtomicWaker = AtomicWaker::new();
     pub(super) static ESP_NOW_RX_WAKER: AtomicWaker = AtomicWaker::new();
+
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+    struct Waker { seq: u32, waker: AtomicWaker }
+    static SEND_QUEUE: Mutex<RefCell<SimpleQueue<Waker, 10>>> =
+        Mutex::new(RefCell::new(SimpleQueue::new()));
+    static PREV_SEND_COMPLETED: AtomicBool = AtomicBool::new(true);
+    static HAS_PREV: AtomicBool = AtomicBool::new(false);
 
     impl<'d> EspNow<'d> {
         pub async fn receive_async(&self) -> ReceivedData {
             ReceiveFuture.await
         }
 
-        pub fn send_async(&self, dst_addr: &[u8; 6], data: &[u8]) -> Result<SendFuture, EspNowError> {
-            let mut addr = [0u8; 6];
-            addr.copy_from_slice(dst_addr);
-            ESP_NOW_SEND_CB_INVOKED.store(false, Ordering::Release);
-            check_error!({ esp_now_send(addr.as_ptr(), data.as_ptr(), data.len() as u32) })?;
-            Ok(SendFuture(()))
+        // TODO: add a sequence number
+        pub async fn send_async(&self, dst_addr: &[u8; 6], data: &[u8]) -> Result<(), EspNowError> {
+            SendFuture { 
+                dst_addr,
+                data,
+                sent: false,
+                in_queue: false,
+                seq: None
+            }.await
         }
     }
 
-    pub struct SendFuture(());
+    struct SendFuture<'r> {
+        dst_addr: &'r [u8; 6],
+        data: &'r [u8],
+        sent: bool,
+        in_queue: bool,
+        seq: Option<u32>
+    }
 
-    impl core::future::Future for SendFuture {
-        type Output = SendStatus;
+    impl<'r> core::future::Future for SendFuture<'r> {
+        type Output = Result<(), EspNowError>;
 
-        fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            ESP_NOW_TX_WAKER.register(cx.waker());
+        fn poll(mut self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            log::info!("task {:?} polled", self.seq);
+            if (!PREV_SEND_COMPLETED.load(Ordering::Acquire) && !self.sent) || (!self.in_queue && !self.sent && HAS_PREV.load(Ordering::Acquire)) {
+                // previous sending not completed or current task not in queue and there is a previous sending
+                let waker = AtomicWaker::new();
+                waker.register(cx.waker());
+                critical_section::with(|cs| {
+                    let waker = Waker { seq: SEQ.fetch_add(1, Ordering::Release), waker };
+                    log::info!("current task {} enqueue.", waker.seq);
+                    self.seq = Some(waker.seq);
+                    if let Err(_t) = SEND_QUEUE.borrow_ref_mut(cs).enqueue(waker) {
+                        log::error!("full queue");
+                    }
+                });
+                self.in_queue = true;
+                // wait for next wake
+                return Poll::Pending
+            }
+
+            if !self.sent {
+                ESP_NOW_SEND_CB_INVOKED.store(false, Ordering::Release);
+                PREV_SEND_COMPLETED.store(false, Ordering::Release);
+                HAS_PREV.store(true, Ordering::Release);
+                check_error!({ esp_now_send(self.dst_addr.as_ptr(),self.data.as_ptr(), self.data.len() as u32) })?;
+                ESP_NOW_TX_WAKER.register(cx.waker());
+                self.sent = true;
+            }
 
             if ESP_NOW_SEND_CB_INVOKED.load(Ordering::Acquire) {
+                PREV_SEND_COMPLETED.store(true, Ordering::Release);
+                critical_section::with(|cs| {
+                    if let Some(waker) = SEND_QUEUE.borrow_ref_mut(cs).dequeue() {
+                        log::info!("waked next task {}", waker.seq);
+                        waker.waker.wake()
+                    }
+                });
                 Poll::Ready(if ESP_NOW_SEND_STATUS.load(Ordering::Relaxed) {
-                    SendStatus::Success
+                    Ok(())
                 } else {
-                    SendStatus::Failed
+                    Err(EspNowError::SendFailed)
                 })
             } else {
                 Poll::Pending
