@@ -26,14 +26,13 @@ pub unsafe extern "C" fn malloc(size: u32) -> *const u8 {
 }
 
 pub unsafe extern "C" fn free(ptr: *const u8) {
-    log::trace!("free {:p}", ptr);
-
     if ptr.is_null() {
         return;
     }
 
     let ptr = ptr.offset(-4);
     let total_size = *(ptr as *const usize);
+    log::trace!("free {:p} with size {}", ptr, total_size);
 
     let layout = Layout::from_size_align_unchecked(total_size, 4);
     critical_section::with(|cs| {
