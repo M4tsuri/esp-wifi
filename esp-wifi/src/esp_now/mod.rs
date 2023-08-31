@@ -9,7 +9,6 @@
 use core::{cell::RefCell, fmt::Debug};
 use core::marker::PhantomData;
 
-use atomic_polyfill::{AtomicBool, Ordering};
 use critical_section::Mutex;
 use atomic_polyfill::{Ordering, AtomicBool, AtomicU8};
 use esp_hal_common::peripheral::{Peripheral, PeripheralRef};
