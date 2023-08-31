@@ -168,10 +168,12 @@ pub type EspWifiTimer = Alarm<Target, 0>;
 pub type EspWifiTimer = hal::timer::Timer<hal::timer::Timer0<hal::peripherals::TIMG1>>;
 
 #[derive(Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct EspWifiInitializationInternal;
 
 #[derive(Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EspWifiInitialization {
     #[cfg(feature = "wifi")]
     Wifi(EspWifiInitializationInternal),
@@ -202,6 +204,7 @@ impl EspWifiInitialization {
 }
 
 #[derive(Debug, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EspWifiInitFor {
     #[cfg(feature = "wifi")]
     Wifi,
@@ -277,6 +280,9 @@ pub fn initialize(
         rom_ets_update_cpu_frequency(240); // we know it's 240MHz because of the check above
     }
 
+    #[cfg(feature = "wifi")]
+    crate::wifi::DataFrame::internal_init();
+
     log::info!("esp-wifi configuration {:?}", crate::CONFIG);
 
     crate::common_adapter::chip_specific::enable_wifi_power_domain();
@@ -333,6 +339,7 @@ pub fn initialize(
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InitializationError {
     General(i32),
     #[cfg(feature = "wifi")]

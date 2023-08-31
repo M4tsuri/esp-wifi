@@ -9,6 +9,7 @@
 use core::{cell::RefCell, fmt::Debug};
 use core::marker::PhantomData;
 
+use atomic_polyfill::{AtomicBool, Ordering};
 use critical_section::Mutex;
 use atomic_polyfill::{Ordering, AtomicBool, AtomicU8};
 use esp_hal_common::peripheral::{Peripheral, PeripheralRef};
@@ -28,7 +29,7 @@ static RECEIVE_QUEUE: Mutex<RefCell<SimpleQueue<ReceivedData, 10>>> =
     Mutex::new(RefCell::new(SimpleQueue::new()));
 /// This atomic behaves like a guard, so we need strict memory ordering when
 /// operating it.
-/// 
+///
 /// This flag indicates whether the send callback has been called after a sending.
 static ESP_NOW_SEND_CB_INVOKED: AtomicBool = AtomicBool::new(false);
 /// Status of esp now send, true for success, false for failure
@@ -39,13 +40,14 @@ macro_rules! check_error {
     ($block:block) => {
         match unsafe { $block } {
             0 => Ok(()),
-            res => Err(EspNowError::Error(Error::from_code(res as u32)))
+            res => Err(EspNowError::Error(Error::from_code(res as u32))),
         }
     };
 }
 
 #[repr(u32)]
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     NotInitialized = 12389,
     InvalidArgument = 12390,
@@ -75,18 +77,21 @@ impl Error {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EspNowError {
     Error(Error),
     SendFailed
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PeerCount {
     pub total_count: i32,
     pub encrypted_count: i32,
 }
 
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WifiPhyRate {
     /// < 1 Mbps with long preamble
     Rate1mL = 0,
@@ -159,6 +164,7 @@ pub enum WifiPhyRate {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PeerInfo {
     pub peer_address: [u8; 6],
     pub lmk: Option<[u8; 16]>,
@@ -169,6 +175,7 @@ pub struct PeerInfo {
 
 #[cfg(not(any(esp32c6)))]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxControlInfo {
     pub rssi: i32,
     pub rate: u32,
@@ -193,6 +200,7 @@ pub struct RxControlInfo {
 
 #[cfg(any(esp32c6))]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxControlInfo {
     pub rssi: i32,
     pub rate: u32,
@@ -217,6 +225,7 @@ pub struct RxControlInfo {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReceiveInfo {
     pub src_address: [u8; 6],
     pub dst_address: [u8; 6],
@@ -224,6 +233,7 @@ pub struct ReceiveInfo {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ReceivedData {
     pub len: u8,
     pub data: [u8; 256],
@@ -634,14 +644,11 @@ impl Drop for EspNowManager<'_> {
     }
 }
 
-unsafe extern "C" fn send_cb(
-    _mac_addr: *const u8,
-    status: esp_now_send_status_t
-) {
+unsafe extern "C" fn send_cb(_mac_addr: *const u8, status: esp_now_send_status_t) {
     critical_section::with(|_| {
         let is_success = status == esp_now_send_status_t_ESP_NOW_SEND_SUCCESS;
         ESP_NOW_SEND_STATUS.store(is_success, Ordering::Relaxed);
-    
+
         ESP_NOW_SEND_CB_INVOKED.store(true, Ordering::Release);
 
         #[cfg(feature = "async")]
