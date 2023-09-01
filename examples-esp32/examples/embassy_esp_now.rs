@@ -9,7 +9,6 @@ use examples_util::hal;
 use embassy_executor::Executor;
 use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
-use esp_println::logger::init_logger;
 use esp_println::println;
 use esp_wifi::esp_now::{EspNow, PeerInfo, BROADCAST_ADDRESS};
 use esp_wifi::{initialize, EspWifiInitFor};
@@ -26,7 +25,7 @@ async fn run(mut esp_now: EspNow<'static>) {
     loop {
         let res = select(ticker.next(), async {
             let r = esp_now.receive_async().await;
-            println!("Received {:x?}", r);
+            println!("Received {:?}", r);
             if r.info.dst_address == BROADCAST_ADDRESS {
                 if !esp_now.peer_exists(&r.info.src_address) {
                     esp_now
@@ -59,7 +58,8 @@ static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[entry]
 fn main() -> ! {
-    init_logger(log::LevelFilter::Info);
+    #[cfg(feature = "log")]
+    esp_println::logger::init_logger(log::LevelFilter::Info);
 
     let peripherals = Peripherals::take();
 
