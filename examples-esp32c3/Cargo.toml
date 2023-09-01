@@ -5,6 +5,12 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[patch.crates-io]
+esp-hal-common = { git = "https://github.com/esp-rs/esp-hal", package = "esp-hal-common" }
+esp32c3-hal = { git = "https://github.com/esp-rs/esp-hal", package = "esp32c3-hal" }
+esp32s2-hal = { git = "https://github.com/esp-rs/esp-hal", package = "esp32s2-hal" }
+
+
 [dependencies]
 embedded-svc.workspace = true
 bleps.workspace = true
