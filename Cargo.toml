@@ -27,9 +27,9 @@ debug = true
 lto = "off"
 
 [patch.crates-io]
-esp-hal-common = { git = "https://github.com/esp-rs/esp-hal", package = "esp-hal-common" }
-esp32c3-hal = { git = "https://github.com/esp-rs/esp-hal", package = "esp32c3-hal" }
-esp32s2-hal = { git = "https://github.com/esp-rs/esp-hal", package = "esp32s2-hal" }
+esp-hal-common = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp-hal-common" }
+esp32c3-hal = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp32c3-hal" }
+esp32s2-hal = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp32s2-hal" }
 
 [workspace.dependencies]
 defmt = "=0.3.5"
