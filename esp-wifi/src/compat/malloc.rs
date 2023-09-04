@@ -1,9 +1,10 @@
 use core::alloc::Layout;
 
 use crate::HEAP;
+use crate::{trace, warn};
 
 pub unsafe extern "C" fn malloc(size: u32) -> *const u8 {
-    log::trace!("alloc {}", size);
+    trace!("alloc {}", size);
 
     let total_size = size as usize + 4;
 
@@ -17,7 +18,7 @@ pub unsafe extern "C" fn malloc(size: u32) -> *const u8 {
     });
 
     if ptr.is_null() {
-        log::warn!("Unable to allocate {} bytes", size);
+        warn!("Unable to allocate {} bytes", size);
         return ptr;
     }
 
@@ -26,6 +27,8 @@ pub unsafe extern "C" fn malloc(size: u32) -> *const u8 {
 }
 
 pub unsafe extern "C" fn free(ptr: *const u8) {
+    trace!("free {:?}", ptr);
+
     if ptr.is_null() {
         return;
     }
@@ -44,7 +47,7 @@ pub unsafe extern "C" fn free(ptr: *const u8) {
 
 #[no_mangle]
 pub unsafe extern "C" fn calloc(number: u32, size: u32) -> *const u8 {
-    log::trace!("calloc {} {}", number, size);
+    trace!("calloc {} {}", number, size);
 
     let total_size = number * size;
     let ptr = malloc(total_size) as *mut u8;
