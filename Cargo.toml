@@ -30,6 +30,7 @@ lto = "off"
 esp-hal-common = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp-hal-common" }
 esp32c3-hal = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp32c3-hal" }
 esp32s2-hal = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp32s2-hal" }
+esp32-hal = { git = "https://github.com/M4tsuri/esp-hal", branch = "kesong", package = "esp32-hal" }
 
 [workspace.dependencies]
 defmt = "=0.3.5"
