@@ -36,7 +36,6 @@ static RECEIVE_QUEUE: Mutex<RefCell<SimpleQueue<ReceivedData, 10>>> =
 static ESP_NOW_SEND_CB_INVOKED: AtomicBool = AtomicBool::new(false);
 /// Status of esp now send, true for success, false for failure
 static ESP_NOW_SEND_STATUS: AtomicBool = AtomicBool::new(true);
-static ESP_NOW_RC: AtomicU8 = AtomicU8::new(0);
 
 macro_rules! check_error {
     ($block:block) => {
@@ -267,7 +266,7 @@ pub fn enable_esp_now_with_wifi(
     (device, EspNowWithWifiCreateToken { _private: () })
 }
 
-pub struct EspNowManager<'d>(&'d ());
+pub struct EspNowManager<'d>(EspNowRc<'d>);
 
 impl<'d> EspNowManager<'d> {
     /// Set primary WiFi channel
@@ -416,7 +415,7 @@ impl<'d> EspNowManager<'d> {
 /// You need a lock when using this sender in multiple tasks. 
 /// **DO NOT USE** a `critical-section` based lock implementation since the 
 /// completion of a sending requires waiting for a callback invoked in an interrupt. 
-pub struct EspNowSender<'d>(&'d ());
+pub struct EspNowSender<'d>(EspNowRc<'d>);
 
 impl<'d> EspNowSender<'d> {
     /// Send data to peer
@@ -467,7 +466,7 @@ impl<'s> Drop for SendWaiter<'s> {
 
 /// This is the sender part of ESP-NOW. You can get this sender by splitting 
 /// a `EspNow` instance. 
-pub struct EspNowReceiver<'d>(&'d ());
+pub struct EspNowReceiver<'d>(EspNowRc<'d>);
 
 impl<'d> EspNowReceiver<'d> {
     pub fn receive(&self) -> Option<ReceivedData> {
@@ -475,6 +474,46 @@ impl<'d> EspNowReceiver<'d> {
             let mut queue = RECEIVE_QUEUE.borrow_ref_mut(cs);
             queue.dequeue()
         })
+    }
+}
+
+/// The reference counter for properly deinit espnow after all parts are dropped.
+struct EspNowRc<'d> {
+    rc: &'static AtomicU8,
+    inner: PhantomData<EspNow<'d>>
+}
+
+impl<'d> EspNowRc<'d> {
+    fn new() -> Self {
+        static ESP_NOW_RC: AtomicU8 = AtomicU8::new(0);
+        assert_eq!(ESP_NOW_RC.load(Ordering::Acquire), 0);
+        ESP_NOW_RC.store(1, Ordering::Release);
+
+        Self {
+            rc: &ESP_NOW_RC,
+            inner: PhantomData
+        }
+    }
+}
+
+impl<'d> Clone for EspNowRc<'d> {
+    fn clone(&self) -> Self {
+        self.rc.fetch_add(1, Ordering::Release);
+        Self {
+            rc: self.rc,
+            inner: PhantomData
+        }
+    }
+}
+
+impl<'d> Drop for EspNowRc<'d> {
+    fn drop(&mut self) {
+        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+            unsafe {
+                esp_now_unregister_recv_cb();
+                esp_now_deinit();
+            }
+        }
     }
 }
 
@@ -519,11 +558,12 @@ impl<'d> EspNow<'d> {
             return Err(EspNowError::Error(Error::NotInitialized));
         }
 
+        let espnow_rc = EspNowRc::new();
         let esp_now = EspNow { 
             _device: device,
-            manager: EspNowManager(&()),
-            sender: EspNowSender(&()),
-            receiver: EspNowReceiver(&())
+            manager: EspNowManager(espnow_rc.clone()),
+            sender: EspNowSender(espnow_rc.clone()),
+            receiver: EspNowReceiver(espnow_rc)
         };
         check_error!({ esp_wifi_set_mode(wifi_mode_t_WIFI_MODE_STA) })?;
         check_error!({ esp_wifi_start() })?;
@@ -538,7 +578,6 @@ impl<'d> EspNow<'d> {
             encrypt: false,
         })?;
 
-        ESP_NOW_RC.store(3, Ordering::Release);
         Ok(esp_now)
     }
 
@@ -622,39 +661,6 @@ impl<'d> EspNow<'d> {
     /// Receive data
     pub fn receive(&self) -> Option<ReceivedData> {
         self.receiver.receive()
-    }
-}
-
-impl Drop for EspNowSender<'_> {
-    fn drop(&mut self) {
-        if ESP_NOW_RC.fetch_sub(1, Ordering::Release) == 1 {
-            unsafe {
-                esp_now_unregister_recv_cb();
-                esp_now_deinit();
-            }
-        }
-    }
-}
-
-impl Drop for EspNowReceiver<'_> {
-    fn drop(&mut self) {
-        if ESP_NOW_RC.fetch_sub(1, Ordering::Release) == 1 {
-            unsafe {
-                esp_now_unregister_recv_cb();
-                esp_now_deinit();
-            }
-        }
-    }
-}
-
-impl Drop for EspNowManager<'_> {
-    fn drop(&mut self) {
-        if ESP_NOW_RC.fetch_sub(1, Ordering::Release) == 1 {
-            unsafe {
-                esp_now_unregister_recv_cb();
-                esp_now_deinit();
-            }
-        }
     }
 }
 
