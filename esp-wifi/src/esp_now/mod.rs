@@ -261,8 +261,8 @@ pub struct EspNowWithWifiCreateToken {
 }
 
 pub fn enable_esp_now_with_wifi(
-    device: esp_hal_common::radio::Wifi,
-) -> (esp_hal_common::radio::Wifi, EspNowWithWifiCreateToken) {
+    device: crate::hal::radio::Wifi,
+) -> (crate::hal::radio::Wifi, EspNowWithWifiCreateToken) {
     (device, EspNowWithWifiCreateToken { _private: () })
 }
 

@@ -2,23 +2,11 @@ use crate::binary::include::esp_event_base_t;
 use crate::binary::include::esp_timer_create_args_t;
 use crate::binary::include::esp_timer_handle_t;
 use crate::compat::timer_compat::*;
-use crate::{trace, unwrap};
-use embedded_hal::prelude::_embedded_hal_blocking_rng_Read;
+use crate::trace;
 
 use crate::compat::common::*;
 
-#[cfg(esp32)]
-use esp32_hal as hal;
-#[cfg(esp32c2)]
-use esp32c2_hal as hal;
-#[cfg(esp32c3)]
-use esp32c3_hal as hal;
-#[cfg(esp32c6)]
-use esp32c6_hal as hal;
-#[cfg(esp32s2)]
-use esp32s2_hal as hal;
-#[cfg(esp32s3)]
-use esp32s3_hal as hal;
+use crate::hal;
 
 use hal::system::RadioClockControl;
 use hal::Rng;
@@ -146,9 +134,7 @@ pub unsafe extern "C" fn random() -> crate::binary::c_types::c_ulong {
     trace!("random");
 
     if let Some(ref mut rng) = RANDOM_GENERATOR {
-        let mut buffer = [0u8; 4];
-        unwrap!(rng.read(&mut buffer));
-        u32::from_le_bytes(buffer)
+        rng.random()
     } else {
         0
     }
@@ -436,7 +422,10 @@ pub unsafe extern "C" fn esp_fill_random(dst: *mut u8, len: u32) {
     let dst = core::slice::from_raw_parts_mut(dst, len as usize);
 
     if let Some(ref mut rng) = RANDOM_GENERATOR {
-        unwrap!(rng.read(dst));
+        for chunk in dst.chunks_mut(4) {
+            let bytes = rng.random().to_le_bytes();
+            chunk.copy_from_slice(&bytes[..chunk.len()]);
+        }
     }
 }
 
