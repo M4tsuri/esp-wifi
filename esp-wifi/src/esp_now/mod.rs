@@ -11,10 +11,11 @@ use core::marker::PhantomData;
 
 use critical_section::Mutex;
 use atomic_polyfill::{Ordering, AtomicBool, AtomicU8};
-use esp_hal_common::peripheral::{Peripheral, PeripheralRef};
 
 use crate::compat::queue::SimpleQueue;
 use crate::EspWifiInitialization;
+use crate::hal::radio;
+use crate::hal::peripheral::{Peripheral, PeripheralRef};
 
 use crate::binary::include::*;
 
@@ -409,6 +410,12 @@ impl<'d> EspNowManager<'d> {
     }
 }
 
+/// This is the sender part of ESP-NOW. You can get this sender by splitting 
+/// a `EspNow` instance. 
+/// 
+/// You need a lock when using this sender in multiple tasks. 
+/// **DO NOT USE** a `critical-section` based lock implementation since the 
+/// completion of a sending requires waiting for a callback invoked in an interrupt. 
 pub struct EspNowSender<'d>(&'d ());
 
 impl<'d> EspNowSender<'d> {
@@ -427,7 +434,11 @@ impl<'d> EspNowSender<'d> {
 /// and return the status of previous sending. 
 /// 
 /// This waiter borrows the sender, so when used in multiple tasks, the lock will only be
-/// released when the waiter is dropped or consumed via `wait`
+/// released when the waiter is dropped or consumed via `wait`. 
+/// 
+/// When using a `critical-section` based lock, the waiter will block forever since 
+/// the callback which signals the completion of sending will never be invoked.
+#[must_use]
 pub struct SendWaiter<'s>(PhantomData<&'s mut EspNowSender<'s>>);
 
 impl<'s> SendWaiter<'s> {
@@ -454,6 +465,8 @@ impl<'s> Drop for SendWaiter<'s> {
     }
 }
 
+/// This is the sender part of ESP-NOW. You can get this sender by splitting 
+/// a `EspNow` instance. 
 pub struct EspNowReceiver<'d>(&'d ());
 
 impl<'d> EspNowReceiver<'d> {
@@ -474,7 +487,7 @@ impl<'d> EspNowReceiver<'d> {
 /// Currently this implementation (when used together with traditional Wi-Fi) ONLY support STA mode.
 ///
 pub struct EspNow<'d> {
-    _device: Option<PeripheralRef<'d, esp_hal_common::radio::Wifi>>,
+    _device: Option<PeripheralRef<'d, radio::Wifi>>,
     manager: EspNowManager<'d>,
     sender: EspNowSender<'d>,
     receiver: EspNowReceiver<'d>
@@ -483,7 +496,7 @@ pub struct EspNow<'d> {
 impl<'d> EspNow<'d> {
     pub fn new(
         inited: &EspWifiInitialization,
-        device: impl Peripheral<P = esp_hal_common::radio::Wifi> + 'd,
+        device: impl Peripheral<P = radio::Wifi> + 'd,
     ) -> Result<EspNow<'d>, EspNowError> {
         EspNow::new_internal(inited, Some(device.into_ref()))
     }
@@ -494,13 +507,13 @@ impl<'d> EspNow<'d> {
     ) -> Result<EspNow<'d>, EspNowError> {
         EspNow::new_internal(
             inited,
-            None::<PeripheralRef<'d, esp_hal_common::radio::Wifi>>,
+            None::<PeripheralRef<'d, radio::Wifi>>,
         )
     }
 
     fn new_internal(
         inited: &EspWifiInitialization,
-        device: Option<PeripheralRef<'d, esp_hal_common::radio::Wifi>>,
+        device: Option<PeripheralRef<'d, radio::Wifi>>,
     ) -> Result<EspNow<'d>, EspNowError> {
         if !inited.is_wifi() {
             return Err(EspNowError::Error(Error::NotInitialized));
@@ -793,6 +806,8 @@ mod asynch {
             self.receiver.receive_async()
         }
 
+        /// The returned future must not be dropped before it's ready to avoid getting wrong status
+        /// for sendings.
         #[must_use]
         pub fn send_async<'s, 'r>(&'s mut self, dst_addr: &'r [u8; 6], data: &'r [u8]) -> SendFuture<'s, 'r> {
             self.sender.send_async(dst_addr, data)
