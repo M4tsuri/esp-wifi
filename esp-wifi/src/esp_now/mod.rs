@@ -514,7 +514,7 @@ impl<'d> Clone for EspNowRc<'d> {
 
 impl<'d> Drop for EspNowRc<'d> {
     fn drop(&mut self) {
-        if self.rc.fetch_sub(1, Ordering::Release) == 1 {
+        if self.rc.fetch_sub(1, Ordering::AcqRel) == 1 {
             unsafe {
                 esp_now_unregister_recv_cb();
                 esp_now_deinit();
