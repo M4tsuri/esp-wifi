@@ -13,7 +13,7 @@ use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 
 use esp_println::println;
-use esp_wifi::esp_now::{PeerInfo, BROADCAST_ADDRESS, EspNowSender, EspNowReceiver, EspNowManager};
+use esp_wifi::esp_now::{EspNowManager, EspNowReceiver, EspNowSender, PeerInfo, BROADCAST_ADDRESS};
 use esp_wifi::{initialize, EspWifiInitFor};
 use hal::clock::{ClockControl, CpuClock};
 use hal::Rng;
@@ -27,32 +27,45 @@ async fn broadcaster(sender: &'static NoopMutex<RefCell<EspNowSender<'static>>>)
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
         ticker.next().await;
-        
+
         println!("Send Broadcast...");
         let status = sender.lock(|sender| {
-            sender.borrow_mut().send(&BROADCAST_ADDRESS, b"Hello.").unwrap().wait()
+            sender
+                .borrow_mut()
+                .send(&BROADCAST_ADDRESS, b"Hello.")
+                .unwrap()
+                .wait()
         });
         println!("Send broadcast status: {:?}", status);
     }
 }
 
 #[embassy_executor::task]
-async fn sayhello(manager: &'static EspNowManager<'static>, sender: &'static NoopMutex<RefCell<EspNowSender<'static>>>) {
+async fn sayhello(
+    manager: &'static EspNowManager<'static>,
+    sender: &'static NoopMutex<RefCell<EspNowSender<'static>>>,
+) {
     let mut ticker = Ticker::every(Duration::from_millis(500));
     loop {
         ticker.next().await;
-        let peer =  match manager.fetch_peer(false) {
+        let peer = match manager.fetch_peer(false) {
             Ok(peer) => peer,
-            Err(_) => if let Ok(peer) = manager.fetch_peer(true) {
-                peer
-            } else {
-                continue;
+            Err(_) => {
+                if let Ok(peer) = manager.fetch_peer(true) {
+                    peer
+                } else {
+                    continue;
+                }
             }
         };
 
         println!("Send hello to peer {:?}", peer.peer_address);
         let status = sender.lock(|sender| {
-            sender.borrow_mut().send(&peer.peer_address, b"Hello Peer.").unwrap().wait()
+            sender
+                .borrow_mut()
+                .send(&peer.peer_address, b"Hello Peer.")
+                .unwrap()
+                .wait()
         });
         println!("Send hello status: {:?}", status);
     }
@@ -116,7 +129,7 @@ fn main() -> ! {
     let (manager, sender, receiver) = esp_now.split();
     let manager = ESP_NOW_MANAGER.init(manager);
     let sender: &'static _ = ESP_NOW_SENDER.init(NoopMutex::new(RefCell::new(sender)));
-    
+
     executor.run(|spawner| {
         spawner.spawn(listener(manager, receiver)).ok();
         spawner.spawn(broadcaster(sender)).ok();
