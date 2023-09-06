@@ -413,8 +413,9 @@ impl<'d> EspNowManager<'d> {
 /// a `EspNow` instance. 
 /// 
 /// You need a lock when using this sender in multiple tasks. 
-/// **DO NOT USE** a `critical-section` based lock implementation since the 
-/// completion of a sending requires waiting for a callback invoked in an interrupt. 
+/// **DO NOT USE** a lock implementation that disables interrupts since the 
+/// completion of a sending requires waiting for a callback invoked in an 
+/// interrupt. 
 pub struct EspNowSender<'d>(EspNowRc<'d>);
 
 impl<'d> EspNowSender<'d> {
@@ -435,7 +436,7 @@ impl<'d> EspNowSender<'d> {
 /// This waiter borrows the sender, so when used in multiple tasks, the lock will only be
 /// released when the waiter is dropped or consumed via `wait`. 
 /// 
-/// When using a `critical-section` based lock, the waiter will block forever since 
+/// When using a lock that disables interrupts, the waiter will block forever since 
 /// the callback which signals the completion of sending will never be invoked.
 #[must_use]
 pub struct SendWaiter<'s>(PhantomData<&'s mut EspNowSender<'s>>);
