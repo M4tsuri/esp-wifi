@@ -12,7 +12,7 @@ use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 
 use esp_println::println;
-use esp_wifi::esp_now::{PeerInfo, BROADCAST_ADDRESS, EspNowSender, EspNowReceiver, EspNowManager};
+use esp_wifi::esp_now::{EspNowManager, EspNowReceiver, EspNowSender, PeerInfo, BROADCAST_ADDRESS};
 use esp_wifi::{initialize, EspWifiInitFor};
 use hal::clock::{ClockControl, CpuClock};
 use hal::Rng;
@@ -26,7 +26,7 @@ async fn broadcaster(sender: &'static Mutex<NoopRawMutex, EspNowSender<'static>>
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
         ticker.next().await;
-        
+
         println!("Send Broadcast...");
         let mut sender = sender.lock().await;
         let status = sender.send_async(&BROADCAST_ADDRESS, b"Hello.").await;
@@ -35,16 +35,21 @@ async fn broadcaster(sender: &'static Mutex<NoopRawMutex, EspNowSender<'static>>
 }
 
 #[embassy_executor::task]
-async fn sayhello(manager: &'static EspNowManager<'static>, sender: &'static Mutex<NoopRawMutex, EspNowSender<'static>>) {
+async fn sayhello(
+    manager: &'static EspNowManager<'static>,
+    sender: &'static Mutex<NoopRawMutex, EspNowSender<'static>>,
+) {
     let mut ticker = Ticker::every(Duration::from_millis(500));
     loop {
         ticker.next().await;
-        let peer =  match manager.fetch_peer(false) {
+        let peer = match manager.fetch_peer(false) {
             Ok(peer) => peer,
-            Err(_) => if let Ok(peer) = manager.fetch_peer(true) {
-                peer
-            } else {
-                continue;
+            Err(_) => {
+                if let Ok(peer) = manager.fetch_peer(true) {
+                    peer
+                } else {
+                    continue;
+                }
             }
         };
 
@@ -113,7 +118,7 @@ fn main() -> ! {
     let (manager, sender, receiver) = esp_now.split();
     let manager = ESP_NOW_MANAGER.init(manager);
     let sender: &'static _ = ESP_NOW_SENDER.init(Mutex::new(sender));
-    
+
     executor.run(|spawner| {
         spawner.spawn(listener(manager, receiver)).ok();
         spawner.spawn(broadcaster(sender)).ok();
