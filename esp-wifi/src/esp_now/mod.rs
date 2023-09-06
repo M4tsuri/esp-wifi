@@ -81,7 +81,9 @@ impl Error {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EspNowError {
     Error(Error),
-    SendFailed
+    SendFailed,
+    /// Attempt to create EspNow instance twice 
+    DuplicateInstance
 }
 
 #[derive(Debug)]
@@ -485,15 +487,18 @@ struct EspNowRc<'d> {
 }
 
 impl<'d> EspNowRc<'d> {
-    fn new() -> Self {
+    fn new() -> Result<Self, EspNowError> {
         static ESP_NOW_RC: AtomicU8 = AtomicU8::new(0);
-        assert_eq!(ESP_NOW_RC.load(Ordering::Acquire), 0);
-        ESP_NOW_RC.store(1, Ordering::Release);
+        // The reference counter is not 0, which means there is another instance of
+        // EspNow, which is not allowed
+        if ESP_NOW_RC.fetch_add(1, Ordering::AcqRel) != 0 {
+            return Err(EspNowError::DuplicateInstance)
+        }
 
-        Self {
+        Ok(Self {
             rc: &ESP_NOW_RC,
             inner: PhantomData
-        }
+        })
     }
 }
 
@@ -559,7 +564,7 @@ impl<'d> EspNow<'d> {
             return Err(EspNowError::Error(Error::NotInitialized));
         }
 
-        let espnow_rc = EspNowRc::new();
+        let espnow_rc = EspNowRc::new()?;
         let esp_now = EspNow { 
             _device: device,
             manager: EspNowManager(espnow_rc.clone()),
