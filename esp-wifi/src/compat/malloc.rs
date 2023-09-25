@@ -1,5 +1,7 @@
 use core::alloc::Layout;
 
+use esp_backtrace::arch;
+
 use crate::HEAP;
 
 pub unsafe extern "C" fn malloc(size: usize) -> *const u8 {
@@ -17,7 +19,7 @@ pub unsafe extern "C" fn malloc(size: usize) -> *const u8 {
     });
 
     if ptr.is_null() {
-        warn!("Unable to allocate {} bytes", size);
+        warn!("Unable to allocate {} bytes, backtrace: \n{:?}", size, arch::backtrace());
         return ptr;
     }
 
