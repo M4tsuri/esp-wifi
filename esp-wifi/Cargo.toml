@@ -29,7 +29,7 @@ embassy-sync = { workspace = true, optional = true }
 embassy-futures = { workspace = true, optional = true }
 embassy-net-driver = { workspace = true, optional = true }
 toml-cfg.workspace = true
-esp-backtrace = { version = "0.8.0", features = ["esp32s2"] }
+esp-backtrace = { version = "0.8.0", features = ["esp32s2"], optional = true }
 
 [features]
 default = [ "utils", "log" ]
@@ -39,7 +39,7 @@ esp32c2 = [ "esp32c2-hal", "esp-wifi-sys/esp32c2" ]
 esp32c3 = [ "esp32c3-hal", "esp-wifi-sys/esp32c3" ]
 esp32c6 = [ "esp32c6-hal", "esp-wifi-sys/esp32c6" ]
 esp32 = [ "esp32-hal",  "esp-wifi-sys/esp32" ]
-esp32s2 = [ "esp32s2-hal", "esp-wifi-sys/esp32s2" ]
+esp32s2 = [ "esp32s2-hal", "esp-wifi-sys/esp32s2", "esp-backtrace" ]
 esp32s3 = [ "esp32s3-hal", "esp-wifi-sys/esp32s3" ]
 
 # async features
