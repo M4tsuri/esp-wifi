@@ -29,7 +29,7 @@ embassy-sync = { workspace = true, optional = true }
 embassy-futures = { workspace = true, optional = true }
 embassy-net-driver = { workspace = true, optional = true }
 toml-cfg.workspace = true
-esp-backtrace = { version = "0.8.0", features = ["esp32s2"], optional = true }
+esp-backtrace = { version = "0.8.0", features = ["esp32s2", "print-jtag-serial"], optional = true }
 
 [features]
 default = [ "utils", "log" ]
